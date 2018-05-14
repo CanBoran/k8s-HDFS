@@ -1,0 +1,108 @@
+# A headless service to create DNS records.
+
+#apiVersion - Which version of the Kubernetes API you’re using to create this object
+apiVersion: v1
+
+#kind - What kind of object you want to create
+kind: Service
+#Service is a named abstraction of software service (for example, mysql) consisting of local port (for example 3306) that the proxy listens on, and the selector that determines which pods will answer requests sent through the proxy.
+
+#metadata - Data that helps uniquely identify the object, including a name string, UID, and optional namespace
+metadata:
+  #name: a string that uniquely identifies this object within the current namespace. This value is used in the path when retrieving an individual object.
+  name: hdfs-namenode
+  #labels: a map of string keys and values that can be used to organize and categorize objects
+  labels:
+    app: hdfs-namenode
+#The specification is a complete description of the desired state, including configuration settings provided by the user,
+spec:
+  #The list of ports that are exposed by this service. More info: https://kubernetes.io/docs/concepts/services-networking/service/#virtual-ips-and-service-proxies
+  ports:
+  - port: 8020
+    name: fs
+  #clusterIP is the IP address of the service and is usually assigned randomly by the master. If an address is specified manually and is not in use by others, it will be allocated to the service; otherwise, creation of the service will fail. This field can not be changed through updates. Valid values are "None", empty string (""), or a valid IP address. "None" can be specified for headless services when proxying is not required.
+  clusterIP: None
+
+  #Route service traffic to pods with label keys and values matching this selector. If empty or not present, the service is assumed to have an external process managing its endpoints, which Kubernetes will not modify.
+  selector:
+    app: hdfs-namenode
+---
+
+
+apiVersion: apps/v1beta1
+
+#StatefulSet represents a set of pods with consistent identities. Identities are defined as:
+#
+#Network: A single stable DNS and hostname.
+#Storage: As many VolumeClaims as requested. The StatefulSet guarantees that a given network identity will always map to the same storage identity.
+kind: StatefulSet
+
+metadata:
+  name: hdfs-namenode
+spec:
+
+  #serviceName is the name of the service that governs this StatefulSet. This service must exist before the StatefulSet, and is responsible for the network identity of the set. Pods get DNS/hostnames that follow the pattern: pod-specific-string.serviceName.default.svc.cluster.local where "pod-specific-string" is managed by the StatefulSet controller.
+  serviceName: "hdfs-namenode"
+  # Create a size-1 set. The namenode DNS name will be
+  # hdfs-namenode-0.hdfs-namenode.default.svc.cluster.local
+
+  #replicas is the desired number of replicas of the given Template. These are replicas in the sense that they are instantiations of the same Template, but individual replicas also have a consistent identity. If unspecified, defaults to 1.
+  replicas: 1
+
+  #template is the object that describes the pod that will be created if insufficient replicas are detected. Each pod stamped out by the StatefulSet will fulfill this Template, but have a unique identity from the rest of the StatefulSet.
+  template:
+    metadata:
+      labels:
+        app: hdfs-namenode
+    spec:
+      # Use hostNetwork so datanodes connect to namenode without going through an overlay network
+      # like weave. Otherwise, namenode fails to see physical IP address of datanodes.
+
+      #Host networking requested for this pod. Use the host's network namespace. If this option is set, the ports that will be used must be specified. Default to false.
+      #namenode is using hostNetwork so it can see physical IPs of datanodes without an overlay network such as weave-net masking them.
+      hostNetwork: true
+
+      #Use the host's pid namespace. Optional: Default to false.
+      hostPID: true
+
+      #Set DNS policy for the pod. Defaults to "ClusterFirst". Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'. DNS parameters given in DNSConfig will be merged with the policy selected with DNSPolicy. To have DNS options set along with hostNetwork, you have to specify DNS policy explicitly to 'ClusterFirstWithHostNet'.
+      dnsPolicy: ClusterFirstWithHostNet
+
+      #List of containers belonging to the pod. Containers cannot currently be added or removed. There must be at least one container in a Pod. Cannot be updated.
+      containers:
+        - name: hdfs-namenode
+
+          #Docker image name.
+          #This one is the public Hadoop docker images hosted by uhopper: https://hub.docker.com/u/uhopper/
+          image: uhopper/hadoop-namenode:2.7.2
+
+          #List of environment variables to set in the container. Cannot be updated.
+          env:
+            # The following env vars are listed according to low-to-high precedence order.
+            # i.e. Whoever comes last will override the earlier value of the same variable.
+            #{{- range $key, $value := .Values.customHadoopConfig }}
+            - name: HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check
+              value: "false"
+            - name: CLUSTER_NAME
+              value: hdfs-k8s
+          ports:
+          - containerPort: 8020
+            name: fs
+
+          #Pod volumes to mount into the container's filesystem. Cannot be updated.
+          volumeMounts:
+            - name: hdfs-name
+              mountPath: /hadoop/dfs/name
+      # Pin the pod to a node. You can label your node like below:
+      #   $ kubectl label nodes YOUR-NODE hdfs-namenode-selector=hdfs-namenode-0
+      nodeSelector:
+        hdfs-namenode-selector: hdfs-namenode-0
+
+      #Restart policy for all containers within the pod. One of Always, OnFailure, Never. Default to Always. More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy
+      restartPolicy: Always
+
+      #List of volumes that can be mounted by containers belonging to the pod. More info: https://kubernetes.io/docs/concepts/storage/volumes
+      volumes:
+        - name: hdfs-name
+          hostPath:
+            path: /hdfs-name
