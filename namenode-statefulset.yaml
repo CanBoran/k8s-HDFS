@@ -97,11 +97,7 @@ spec:
       #   $ kubectl label nodes YOUR-NODE hdfs-namenode-selector=hdfs-namenode-0
       nodeSelector:
         hdfs-namenode-selector: hdfs-namenode-0
-
-      #Restart policy for all containers within the pod. One of Always, OnFailure, Never. Default to Always. More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy
       restartPolicy: Always
-
-      #List of volumes that can be mounted by containers belonging to the pod. More info: https://kubernetes.io/docs/concepts/storage/volumes
       volumes:
         - name: hdfs-name
           hostPath:
